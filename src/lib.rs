@@ -52,7 +52,7 @@ mod linux {
         flags: u32,
         mac: [u8; 6],
         addr: IpAddr,
-        scopeid: Option<u32>,
+        scope_id: Option<u32>,
         netmask: IpAddr,
         broadcast: Option<IpAddr>,
     }
@@ -114,8 +114,8 @@ mod linux {
             &self.addr
         }
 
-        pub fn scopeid(&self) -> Option<u32> {
-            self.scopeid
+        pub fn scope_id(&self) -> Option<u32> {
+            self.scope_id
         }
 
         pub fn netmask(&self) -> &IpAddr {
@@ -199,7 +199,7 @@ mod linux {
         let netmask = ipaddr(curr.ifa_netmask).unwrap_or_else(no_addr);
         let broadcast = ipaddr(curr.ifa_ifu);
 
-        let scopeid = (addr.sa_family == c::AF_INET6 as u16).then(|| {
+        let scope_id = (addr.sa_family == c::AF_INET6 as u16).then(|| {
             let addr = addr as *const _ as *const c::sockaddr_in6;
             unsafe { (*addr).sin6_scope_id }
         });
@@ -211,7 +211,7 @@ mod linux {
             flags,
             mac,
             addr,
-            scopeid,
+            scope_id,
             netmask,
             broadcast,
         })
@@ -256,5 +256,6 @@ fn basic() {
     for ifa in all().unwrap() {
         println!("{:?}", ifa);
         assert!(!ifa.name().is_empty());
+        assert!(ifa.addr().is_ipv4() ^ ifa.scope_id().is_some());
     }
 }
