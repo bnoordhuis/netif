@@ -279,10 +279,15 @@ fn basic() {
 
         if ifa.is_loopback() {
             let (address, range) = ifa.cidr();
-            assert!(address.is_loopback());
+            // Jarring discrepancy: fe80::1%lo0 is a loopback interface according to getifaddrs()
+            // but Ipv6Addr::is_loopback() only recognizes ::1 as the loopback address.
+            // https://github.com/rust-lang/rust/issues/91448
+            let link_local = "fe80::1" == &format!("{:?}", address);
+            assert!(link_local || address.is_loopback());
             match ifa.address() {
-                IpAddr::V4(_) => assert_eq!(range, 8),
+                IpAddr::V6(_) if link_local => assert_eq!(range, 64),
                 IpAddr::V6(_) => assert_eq!(range, 128),
+                IpAddr::V4(_) => assert_eq!(range, 8),
             }
         }
     }
