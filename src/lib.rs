@@ -12,36 +12,8 @@ pub struct Interface {
 }
 
 impl Interface {
-    pub fn is_broadcast(&self) -> bool {
-        0 != self.flags & c::IFF_BROADCAST as u32
-    }
-
     pub fn is_loopback(&self) -> bool {
         0 != self.flags & c::IFF_LOOPBACK as u32
-    }
-
-    pub fn is_multicast(&self) -> bool {
-        0 != self.flags & c::IFF_MULTICAST as u32
-    }
-
-    pub fn is_noarp(&self) -> bool {
-        0 != self.flags & c::IFF_NOARP as u32
-    }
-
-    pub fn is_point_to_point(&self) -> bool {
-        0 != self.flags & c::IFF_POINTOPOINT as u32
-    }
-
-    pub fn is_promiscuous(&self) -> bool {
-        0 != self.flags & c::IFF_PROMISC as u32
-    }
-
-    pub fn is_running(&self) -> bool {
-        0 != self.flags & c::IFF_RUNNING as u32
-    }
-
-    pub fn is_up(&self) -> bool {
-        0 != self.flags & c::IFF_UP as u32
     }
 
     pub fn name(&self) -> &str {
