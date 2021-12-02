@@ -6,7 +6,7 @@ pub struct Interface {
     name: String,
     flags: u32,
     mac: [u8; 6],
-    addr: IpAddr,
+    address: IpAddr,
     scope_id: Option<u32>,
     netmask: IpAddr,
     broadcast: Option<IpAddr>,
@@ -57,8 +57,8 @@ impl Interface {
         self.mac
     }
 
-    pub fn addr(&self) -> &IpAddr {
-        &self.addr
+    pub fn address(&self) -> &IpAddr {
+        &self.address
     }
 
     pub fn scope_id(&self) -> Option<u32> {
@@ -203,13 +203,13 @@ mod linux {
             unsafe { (*addr).sin6_scope_id }
         });
 
-        let addr = ipaddr(addr).unwrap_or_else(no_addr);
+        let address = ipaddr(addr).unwrap_or_else(no_addr);
 
         Some(Interface {
             name,
             flags,
             mac,
-            addr,
+            address,
             scope_id,
             netmask,
             broadcast,
@@ -363,13 +363,13 @@ mod macos {
             unsafe { (*addr).sin6_scope_id }
         });
 
-        let addr = ipaddr(addr).unwrap_or_else(no_addr);
+        let address = ipaddr(addr).unwrap_or_else(no_addr);
 
         Some(Interface {
             name,
             flags,
             mac,
-            addr,
+            address,
             scope_id,
             netmask,
             broadcast,
@@ -415,6 +415,6 @@ fn basic() {
     for ifa in all().unwrap() {
         println!("{:?}", ifa);
         assert!(!ifa.name().is_empty());
-        assert!(ifa.addr().is_ipv4() ^ ifa.scope_id().is_some());
+        assert!(ifa.address().is_ipv4() ^ ifa.scope_id().is_some());
     }
 }
