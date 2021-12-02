@@ -108,21 +108,18 @@ mod unix {
         }
     }
 
-    fn family(addr: *const c::sockaddr) -> Option<i32> {
-        let not_null = !addr.is_null();
-        not_null.then(|| unsafe { (*addr).sa_family } as i32)
-    }
-
-    fn ip(addr: *const c::sockaddr) -> Option<IpAddr> {
-        match family(addr) {
-            Some(c::AF_INET) => {
-                let addr = addr as *const c::sockaddr_in;
+    fn ip(addr: NonNull<c::sockaddr>) -> Option<IpAddr> {
+        let addr = unsafe { addr.as_ref() };
+        let family = addr.sa_family as _;
+        match family {
+            c::AF_INET => {
+                let addr = addr as *const _ as *const c::sockaddr_in;
                 let addr = unsafe { (*addr).sin_addr.s_addr }.to_be_bytes();
                 let addr = net::Ipv4Addr::from(addr);
                 Some(IpAddr::V4(addr))
             }
-            Some(c::AF_INET6) => {
-                let addr = addr as *const c::sockaddr_in6;
+            c::AF_INET6 => {
+                let addr = addr as *const _ as *const c::sockaddr_in6;
                 let addr = unsafe { (*addr).sin6_addr.s6_addr };
                 let addr = net::Ipv6Addr::from(addr);
                 Some(IpAddr::V6(addr))
@@ -136,29 +133,27 @@ mod unix {
         curr: NonNull<c::ifaddrs>,
     ) -> Option<Interface> {
         let curr = unsafe { curr.as_ref() };
-        let addr = NonNull::new(curr.ifa_addr).unwrap();
-        let addr = unsafe { addr.as_ref() };
+        let addr = NonNull::new(curr.ifa_addr)?;
 
         if is_link(addr) {
             return None;
         }
 
-        let name = unsafe { CStr::from_ptr(curr.ifa_name) };
+        let address = ip(addr)?;
+        let netmask = NonNull::new(curr.ifa_netmask).and_then(ip)?;
 
+        let name = unsafe { CStr::from_ptr(curr.ifa_name) };
         let mac = Iter(base)
             .find_map(|link| mac_of(name, link))
             .unwrap_or_default();
-
         let name = name.to_string_lossy().into_owned();
-        let flags = curr.ifa_flags;
-        let netmask = ip(curr.ifa_netmask).unwrap_or_else(no_addr);
 
-        let scope_id = (addr.sa_family == c::AF_INET6 as _).then(|| {
-            let addr = addr as *const _ as *const c::sockaddr_in6;
+        let flags = curr.ifa_flags;
+
+        let scope_id = address.is_ipv6().then(|| {
+            let addr = addr.as_ptr() as *const c::sockaddr_in6;
             unsafe { (*addr).sin6_scope_id }
         });
-
-        let address = ip(addr).unwrap_or_else(no_addr);
 
         Some(Interface {
             name,
@@ -169,10 +164,6 @@ mod unix {
             netmask,
         })
     }
-
-    fn no_addr() -> IpAddr {
-        IpAddr::V4(net::Ipv4Addr::UNSPECIFIED)
-    }
 }
 
 #[cfg(target_os = "linux")]
@@ -181,13 +172,8 @@ mod linux {
     use std::ffi::CStr;
     use std::ptr::NonNull;
 
-    pub(crate) fn is_link(addr: *const c::sockaddr) -> bool {
-        Some(c::AF_PACKET) == family(addr)
-    }
-
-    fn family(addr: *const c::sockaddr) -> Option<i32> {
-        let not_null = !addr.is_null();
-        not_null.then(|| unsafe { (*addr).sa_family } as i32)
+    pub(crate) fn is_link(addr: NonNull<c::sockaddr>) -> bool {
+        c::AF_PACKET == unsafe { addr.as_ref().sa_family } as _
     }
 
     pub(crate) fn mac_of(
@@ -195,8 +181,9 @@ mod linux {
         link: NonNull<c::ifaddrs>,
     ) -> Option<[u8; 6]> {
         let link = unsafe { link.as_ref() };
+        let addr = NonNull::new(link.ifa_addr)?;
 
-        if !is_link(link.ifa_addr) {
+        if !is_link(addr) {
             return None;
         }
 
@@ -229,19 +216,15 @@ mod macos {
     use std::ffi::CStr;
     use std::ptr::NonNull;
 
-    fn is_link(addr: *const c::sockaddr) -> bool {
-        Some(c::AF_LINK) == family(addr)
-    }
-
-    fn family(addr: *const c::sockaddr) -> Option<i32> {
-        let not_null = !addr.is_null();
-        not_null.then(|| unsafe { (*addr).sa_family } as i32)
+    fn is_link(addr: NonNull<c::sockaddr>) -> bool {
+        c::AF_LINK == unsafe { addr.as_ref().sa_family } as _
     }
 
     fn mac_of(name: &CStr, link: NonNull<c::ifaddrs>) -> Option<[u8; 6]> {
         let link = unsafe { link.as_ref() };
+        let addr = NonNull::new(link.ifa_addr)?;
 
-        if !is_link(link.ifa_addr) {
+        if !is_link(addr) {
             return None;
         }
 
