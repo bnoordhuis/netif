@@ -16,14 +16,17 @@ impl Interface {
         0 != self.flags & c::IFF_LOOPBACK as u32
     }
 
+    /// Interface name, e.g., "lo".
     pub fn name(&self) -> &str {
         &self.name
     }
 
+    /// Interface flags. See libc::IFF_* flags.
     pub fn flags(&self) -> u32 {
         self.flags
     }
 
+    /// MAC address, a.k.a., link-layer address, a.k.a., physical address.
     pub fn mac(&self) -> [u8; 6] {
         self.mac
     }
@@ -32,12 +35,23 @@ impl Interface {
         &self.address
     }
 
+    /// IPv6 scope id or None.
     pub fn scope_id(&self) -> Option<u32> {
         self.scope_id
     }
 
     pub fn netmask(&self) -> &IpAddr {
         &self.netmask
+    }
+
+    /// Caveat emptor: follows the Node.js "192.168.0.42/24" convention
+    /// instead of the arguably more common "192.168.0.0/24" notation.
+    pub fn cidr(&self) -> (&IpAddr, u8) {
+        let range = match self.netmask {
+            IpAddr::V4(addr) => u32::from_be_bytes(addr.octets()).count_ones(),
+            IpAddr::V6(addr) => u128::from_be_bytes(addr.octets()).count_ones(),
+        };
+        (&self.address, range as u8)
     }
 }
 
@@ -109,20 +123,16 @@ mod unix {
     }
 
     fn ip(addr: NonNull<c::sockaddr>) -> Option<IpAddr> {
-        let addr = unsafe { addr.as_ref() };
-        let family = addr.sa_family as _;
-        match family {
+        // Leans on the fact that SocketAddrV4 and SocketAddrV6 are
+        // transparent wrappers around sockaddr_in and sockaddr_in6.
+        match unsafe { addr.as_ref().sa_family } as _ {
             c::AF_INET => {
-                let addr = addr as *const _ as *const c::sockaddr_in;
-                let addr = unsafe { (*addr).sin_addr.s_addr }.to_be_bytes();
-                let addr = net::Ipv4Addr::from(addr);
-                Some(IpAddr::V4(addr))
+                let addr = addr.as_ptr() as *const net::SocketAddrV4;
+                Some(IpAddr::V4(*unsafe { *addr }.ip()))
             }
             c::AF_INET6 => {
-                let addr = addr as *const _ as *const c::sockaddr_in6;
-                let addr = unsafe { (*addr).sin6_addr.s6_addr };
-                let addr = net::Ipv6Addr::from(addr);
-                Some(IpAddr::V6(addr))
+                let addr = addr.as_ptr() as *const net::SocketAddrV6;
+                Some(IpAddr::V6(*unsafe { *addr }.ip()))
             }
             _ => None,
         }
@@ -257,8 +267,23 @@ mod macos {
 #[test]
 fn basic() {
     for ifa in all().unwrap() {
-        println!("{:?}", ifa);
+        println!("{:?} {:?}", ifa, ifa.cidr());
+
         assert!(!ifa.name().is_empty());
         assert!(ifa.address().is_ipv4() ^ ifa.scope_id().is_some());
+        assert_eq!(ifa.address().is_ipv4(), ifa.netmask().is_ipv4());
+
+        if matches!(ifa.name(), "lo" | "lo0") {
+            assert!(ifa.is_loopback());
+        }
+
+        if ifa.is_loopback() {
+            let (address, range) = ifa.cidr();
+            assert!(address.is_loopback());
+            match ifa.address() {
+                IpAddr::V4(_) => assert_eq!(range, 8),
+                IpAddr::V6(_) => assert_eq!(range, 128),
+            }
+        }
     }
 }
