@@ -1,4 +1,3 @@
-use libc as c;
 use std::net::IpAddr;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -13,7 +12,14 @@ pub struct Interface {
 
 impl Interface {
     pub fn is_loopback(&self) -> bool {
-        0 != self.flags & c::IFF_LOOPBACK as u32
+        #[cfg(target_os = "windows")]
+        {
+            false // TODO(bnoordhuis) ifa.IfType == IF_TYPE_SOFTWARE_LOOPBACK
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            0 != self.flags & libc::IFF_LOOPBACK as u32
+        }
     }
 
     /// Interface name, e.g., "lo".
@@ -55,8 +61,35 @@ impl Interface {
     }
 }
 
+#[cfg(target_os = "windows")]
+pub use windows::*;
+
 #[cfg(not(target_os = "windows"))]
 pub use unix::*;
+
+#[cfg(target_os = "windows")]
+mod windows {
+    use super::Interface;
+    use std::io;
+
+    pub fn all() -> io::Result<All> {
+        Ok(All)
+    }
+
+    pub struct All;
+
+    impl Iterator for All {
+        type Item = Interface;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            None
+        }
+    }
+
+    impl Drop for All {
+        fn drop(&mut self) {}
+    }
+}
 
 #[cfg(not(target_os = "windows"))]
 mod unix {
