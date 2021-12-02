@@ -2,6 +2,7 @@
 name = "netif"
 version = "0.1.0"
 edition = "2021"
+license = "ISC"
 
 [dependencies]
 libc = "0.2"
