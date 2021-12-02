@@ -11,17 +11,6 @@ pub struct Interface {
 }
 
 impl Interface {
-    pub fn is_loopback(&self) -> bool {
-        #[cfg(target_os = "windows")]
-        {
-            false // TODO(bnoordhuis) ifa.IfType == IF_TYPE_SOFTWARE_LOOPBACK
-        }
-        #[cfg(not(target_os = "windows"))]
-        {
-            0 != self.flags & libc::IFF_LOOPBACK as u32
-        }
-    }
-
     /// Interface name, e.g., "lo".
     pub fn name(&self) -> &str {
         &self.name
@@ -37,6 +26,10 @@ impl Interface {
         self.mac
     }
 
+    /// Interface address. Reader beware: `ifa.address().is_loopback()`
+    /// returns false for fe80::1%lo0 even though that is a local address;
+    /// it's a link-local address attached to the loopback interface.
+    /// See https://github.com/rust-lang/rust/issues/91448
     pub fn address(&self) -> &IpAddr {
         &self.address
     }
@@ -306,18 +299,12 @@ fn basic() {
         assert!(ifa.address().is_ipv4() ^ ifa.scope_id().is_some());
         assert_eq!(ifa.address().is_ipv4(), ifa.netmask().is_ipv4());
 
-        if matches!(ifa.name(), "lo" | "lo0") {
-            assert!(ifa.is_loopback());
-        }
+        let link_local = "fe80::1" == &format!("{:?}", ifa.address());
 
-        if ifa.is_loopback() {
+        if link_local || ifa.address().is_loopback() {
             let (address, range) = ifa.cidr();
-            // Jarring discrepancy: fe80::1%lo0 is a loopback interface according to getifaddrs()
-            // but Ipv6Addr::is_loopback() only recognizes ::1 as the loopback address.
-            // https://github.com/rust-lang/rust/issues/91448
-            let link_local = "fe80::1" == &format!("{:?}", address);
-            assert!(link_local || address.is_loopback());
-            match ifa.address() {
+            assert_eq!(address, ifa.address());
+            match address {
                 IpAddr::V6(_) if link_local => assert_eq!(range, 64),
                 IpAddr::V6(_) => assert_eq!(range, 128),
                 IpAddr::V4(_) => assert_eq!(range, 8),
