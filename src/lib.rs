@@ -216,11 +216,14 @@ mod macos {
     use std::ffi::CStr;
     use std::ptr::NonNull;
 
-    fn is_link(addr: NonNull<c::sockaddr>) -> bool {
+    pub(crate) fn is_link(addr: NonNull<c::sockaddr>) -> bool {
         c::AF_LINK == unsafe { addr.as_ref().sa_family } as _
     }
 
-    fn mac_of(name: &CStr, link: NonNull<c::ifaddrs>) -> Option<[u8; 6]> {
+    pub(crate) fn mac_of(
+        name: &CStr,
+        link: NonNull<c::ifaddrs>,
+    ) -> Option<[u8; 6]> {
         let link = unsafe { link.as_ref() };
         let addr = NonNull::new(link.ifa_addr)?;
 
