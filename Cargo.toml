@@ -4,5 +4,8 @@ version = "0.1.0"
 edition = "2021"
 license = "ISC"
 
-[dependencies]
+[target.'cfg(not(target_os = "windows"))'.dependencies]
 libc = "0.2"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+winapi = { version = "0.3", features = ["iphlpapi", "winsock2"] }

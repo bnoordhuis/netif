@@ -64,23 +64,191 @@ pub use unix::*;
 mod windows {
     use super::Interface;
     use std::io;
+    use std::net;
+    use std::net::IpAddr;
+    use std::ptr::null_mut;
+    use std::ptr::NonNull;
+    use winapi::shared::ifdef::IfOperStatusUp;
+    use winapi::shared::ws2def::SOCKADDR;
+    use winapi::shared::ws2ipdef::SOCKADDR_IN6;
+    use winapi::um::iphlpapi::GetAdaptersAddresses;
+    use winapi::um::iptypes::GAA_FLAG_SKIP_ANYCAST;
+    use winapi::um::iptypes::GAA_FLAG_SKIP_DNS_SERVER;
+    use winapi::um::iptypes::GAA_FLAG_SKIP_MULTICAST;
+    use winapi::um::iptypes::IP_ADAPTER_ADDRESSES;
+    use winapi::um::iptypes::IP_ADAPTER_UNICAST_ADDRESS;
+    use winapi::um::winsock2::PF_INET;
+    use winapi::um::winsock2::PF_INET6;
+    use winapi::um::winsock2::PF_UNSPEC;
 
     pub fn all() -> io::Result<All> {
-        Ok(All)
+        let mut len = 0;
+
+        let flags = GAA_FLAG_SKIP_ANYCAST
+            + GAA_FLAG_SKIP_DNS_SERVER
+            + GAA_FLAG_SKIP_MULTICAST;
+
+        // Fails with ERROR_BUFFER_OVERFLOW but updates |len| with actual size.
+        unsafe {
+            GetAdaptersAddresses(
+                PF_UNSPEC as _,
+                flags,
+                null_mut(),
+                null_mut(),
+                &mut len,
+            );
+        }
+
+        // Over-allocates 8x but easiest for proper alignment.
+        let mut buf = vec![0usize; len as _];
+
+        let result = unsafe {
+            GetAdaptersAddresses(
+                PF_UNSPEC as _,
+                flags,
+                null_mut(),
+                buf.as_mut_ptr() as *mut _,
+                &mut len,
+            )
+        };
+
+        if result != 0 {
+            return Err(io::Error::from_raw_os_error(result as _));
+        }
+
+        let adapter =
+            NonNull::new(buf.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES);
+
+        let address = adapter.and_then(|adapter| {
+            let adapter = unsafe { adapter.as_ref() };
+            NonNull::new(adapter.FirstUnicastAddress)
+        });
+
+        let iter = Iter { adapter, address };
+
+        Ok(All { _buf: buf, iter })
     }
 
-    pub struct All;
+    pub struct All {
+        _buf: Vec<usize>, // Over-allocates 8x but easiest for proper alignment.
+        iter: Iter,
+    }
 
     impl Iterator for All {
         type Item = Interface;
 
         fn next(&mut self) -> Option<Self::Item> {
-            None
+            self.iter.find_map(to_interface)
         }
     }
 
     impl Drop for All {
         fn drop(&mut self) {}
+    }
+
+    struct Iter {
+        adapter: Option<NonNull<IP_ADAPTER_ADDRESSES>>,
+        address: Option<NonNull<IP_ADAPTER_UNICAST_ADDRESS>>,
+    }
+
+    impl Iterator for Iter {
+        type Item = (
+            NonNull<IP_ADAPTER_ADDRESSES>,
+            NonNull<IP_ADAPTER_UNICAST_ADDRESS>,
+        );
+
+        fn next(&mut self) -> Option<Self::Item> {
+            loop {
+                let adapter = self.adapter?;
+
+                if let Some(address) = self.address.take() {
+                    self.address =
+                        NonNull::new(unsafe { address.as_ref().Next });
+                    return Some((adapter, address));
+                }
+
+                self.adapter = NonNull::new(unsafe { adapter.as_ref().Next });
+
+                self.address = self.adapter.and_then(|adapter| {
+                    let adapter = unsafe { adapter.as_ref() };
+                    NonNull::new(adapter.FirstUnicastAddress)
+                });
+            }
+        }
+    }
+
+    fn ip(addr: NonNull<SOCKADDR>) -> Option<IpAddr> {
+        let family = unsafe { addr.as_ref().sa_family };
+
+        // Leans on the fact that SocketAddrV4 and SocketAddrV6 are
+        // transparent wrappers around SOCKADDR.
+        match family as _ {
+            PF_INET => {
+                let addr = addr.as_ptr() as *const net::SocketAddrV4;
+                Some(IpAddr::V4(*unsafe { *addr }.ip()))
+            }
+            PF_INET6 => {
+                let addr = addr.as_ptr() as *const net::SocketAddrV6;
+                Some(IpAddr::V6(*unsafe { *addr }.ip()))
+            }
+            _ => None,
+        }
+    }
+
+    fn to_interface(
+        (adapter, addr): (
+            NonNull<IP_ADAPTER_ADDRESSES>,
+            NonNull<IP_ADAPTER_UNICAST_ADDRESS>,
+        ),
+    ) -> Option<Interface> {
+        let adapter = unsafe { adapter.as_ref() };
+
+        if adapter.OperStatus != IfOperStatusUp {
+            return None;
+        }
+
+        let addr = unsafe { addr.as_ref() };
+        let sockaddr = NonNull::new(addr.Address.lpSockaddr)?;
+        let prefixlen = addr.OnLinkPrefixLength as _;
+
+        let address = ip(sockaddr)?;
+
+        let netmask = match address {
+            IpAddr::V4(_) => {
+                let ones = !0u32;
+                let mask = ones & !ones.checked_shr(prefixlen).unwrap_or(0);
+                IpAddr::V4(net::Ipv4Addr::from(mask))
+            }
+            IpAddr::V6(_) => {
+                let ones = !0u128;
+                let mask = ones & !ones.checked_shr(prefixlen).unwrap_or(0);
+                IpAddr::V6(net::Ipv6Addr::from(mask))
+            }
+        };
+
+        let name =
+            unsafe { std::slice::from_raw_parts(adapter.FriendlyName, 256) };
+        let len = name.iter().position(|&b| b == 0).unwrap_or(name.len());
+        let name = String::from_utf16_lossy(&name[..len]);
+
+        let scope_id = address.is_ipv6().then(|| {
+            let addr = addr.Address.lpSockaddr as *const SOCKADDR_IN6;
+            unsafe { *(*addr).u.sin6_scope_id() }
+        });
+
+        let [b0, b1, b2, b3, b4, b5, _, _] = adapter.PhysicalAddress;
+        let mac = [b0, b1, b2, b3, b4, b5];
+
+        let flags = 0;
+
+        Some(Interface {
+            name,
+            flags,
+            mac,
+            address,
+            scope_id,
+            netmask,
+        })
     }
 }
 
@@ -149,9 +317,11 @@ mod unix {
     }
 
     fn ip(addr: NonNull<c::sockaddr>) -> Option<IpAddr> {
+        let family = unsafe { addr.as_ref().sa_family };
+
         // Leans on the fact that SocketAddrV4 and SocketAddrV6 are
         // transparent wrappers around sockaddr_in and sockaddr_in6.
-        match unsafe { addr.as_ref().sa_family } as _ {
+        match family as _ {
             c::AF_INET => {
                 let addr = addr.as_ptr() as *const net::SocketAddrV4;
                 Some(IpAddr::V4(*unsafe { *addr }.ip()))
