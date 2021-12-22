@@ -3,6 +3,7 @@ name = "netif"
 version = "0.1.0"
 edition = "2021"
 license = "ISC"
+description = "List the network interfaces on the system."
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 libc = "0.2"
