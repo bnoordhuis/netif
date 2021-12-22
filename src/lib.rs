@@ -269,8 +269,9 @@ mod unix {
     #[cfg(target_os = "linux")]
     use crate::linux::*;
 
-    #[cfg(target_os = "macos")]
-    use crate::macos::*;
+    // Yes, wrong for Solaris's vile offspring. Don't complain, send patches.
+    #[cfg(all(unix, not(target_os = "linux")))]
+    use crate::bsd::*;
 
     /// Returns an iterator that produces the list of interfaces that the
     /// operating system considers "up", that is, configured and active.
@@ -420,8 +421,8 @@ mod linux {
     }
 }
 
-#[cfg(target_os = "macos")]
-mod macos {
+#[cfg(all(unix, not(target_os = "linux")))]
+mod bsd {
     use libc as c;
     use std::ffi::CStr;
     use std::ptr::NonNull;
@@ -458,9 +459,11 @@ mod macos {
             return None;
         }
 
-        let [b0, b1, b2, b3, b4, b5, _, _, _, _, _, _] = addr.sdl_data;
-
-        Some([b0 as u8, b1 as u8, b2 as u8, b3 as u8, b4 as u8, b5 as u8])
+        if let [b0, b1, b2, b3, b4, b5] = addr.sdl_data[..6] {
+            Some([b0 as u8, b1 as u8, b2 as u8, b3 as u8, b4 as u8, b5 as u8])
+        } else {
+            None
+        }
     }
 }
 
