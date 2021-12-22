@@ -81,7 +81,9 @@ mod windows {
     use winapi::um::winsock2::PF_INET6;
     use winapi::um::winsock2::PF_UNSPEC;
 
-    pub fn all() -> io::Result<All> {
+    /// Returns an iterator that produces the list of interfaces that the
+    /// operating system considers "up", that is, configured and active.
+    pub fn up() -> io::Result<Up> {
         let mut len = 0;
 
         let flags = GAA_FLAG_SKIP_ANYCAST
@@ -126,15 +128,15 @@ mod windows {
 
         let iter = Iter { adapter, address };
 
-        Ok(All { _buf: buf, iter })
+        Ok(Up { _buf: buf, iter })
     }
 
-    pub struct All {
+    pub struct Up {
         _buf: Vec<usize>, // Over-allocates 8x but easiest for proper alignment.
         iter: Iter,
     }
 
-    impl Iterator for All {
+    impl Iterator for Up {
         type Item = Interface;
 
         fn next(&mut self) -> Option<Self::Item> {
@@ -142,7 +144,7 @@ mod windows {
         }
     }
 
-    impl Drop for All {
+    impl Drop for Up {
         fn drop(&mut self) {}
     }
 
@@ -270,7 +272,9 @@ mod unix {
     #[cfg(target_os = "macos")]
     use crate::macos::*;
 
-    pub fn all() -> io::Result<All> {
+    /// Returns an iterator that produces the list of interfaces that the
+    /// operating system considers "up", that is, configured and active.
+    pub fn up() -> io::Result<Up> {
         let mut base = ptr::null_mut();
 
         if 0 != unsafe { c::getifaddrs(&mut base) } {
@@ -280,15 +284,15 @@ mod unix {
         let base = NonNull::new(base);
         let iter = Iter(base);
 
-        Ok(All { base, iter })
+        Ok(Up { base, iter })
     }
 
-    pub struct All {
+    pub struct Up {
         base: Option<NonNull<c::ifaddrs>>,
         iter: Iter,
     }
 
-    impl Iterator for All {
+    impl Iterator for Up {
         type Item = Interface;
 
         fn next(&mut self) -> Option<Self::Item> {
@@ -296,7 +300,7 @@ mod unix {
         }
     }
 
-    impl Drop for All {
+    impl Drop for Up {
         fn drop(&mut self) {
             if let Some(mut base) = self.base {
                 unsafe { c::freeifaddrs(base.as_mut()) };
@@ -462,7 +466,7 @@ mod macos {
 
 #[test]
 fn basic() {
-    for ifa in all().unwrap() {
+    for ifa in up().unwrap() {
         println!("{:?} {:?}", ifa, ifa.cidr());
 
         assert!(!ifa.name().is_empty());
