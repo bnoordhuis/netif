@@ -29,7 +29,7 @@ impl Interface {
     /// Interface address. Reader beware: `ifa.address().is_loopback()`
     /// returns false for fe80::1%lo0 even though that is a local address;
     /// it's a link-local address attached to the loopback interface.
-    /// See https://github.com/rust-lang/rust/issues/91448
+    /// See <https://github.com/rust-lang/rust/issues/91448>.
     pub fn address(&self) -> &IpAddr {
         &self.address
     }
