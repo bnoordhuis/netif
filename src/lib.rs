@@ -266,11 +266,11 @@ mod unix {
     use std::ptr;
     use std::ptr::NonNull;
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "android", target_os = "linux"))]
     use crate::linux::*;
 
     // Yes, wrong for Solaris's vile offspring. Don't complain, send patches.
-    #[cfg(all(unix, not(target_os = "linux")))]
+    #[cfg(not(any(target_os = "android", target_os = "linux")))]
     use crate::bsd::*;
 
     /// Returns an iterator that produces the list of interfaces that the
@@ -377,7 +377,7 @@ mod unix {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "android", target_os = "linux"))]
 mod linux {
     use libc as c;
     use std::ffi::CStr;
@@ -421,7 +421,7 @@ mod linux {
     }
 }
 
-#[cfg(all(unix, not(target_os = "linux")))]
+#[cfg(all(unix, not(any(target_os = "android", target_os = "linux"))))]
 mod bsd {
     use libc as c;
     use std::ffi::CStr;
