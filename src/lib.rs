@@ -6,7 +6,7 @@ mod test;
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Interface {
     name: String,
-    flags: u32,
+    flags: u64,
     mac: [u8; 6],
     address: IpAddr,
     scope_id: Option<u32>,
@@ -20,7 +20,7 @@ impl Interface {
     }
 
     /// Interface flags. See libc::IFF_* flags.
-    pub fn flags(&self) -> u32 {
+    pub fn flags(&self) -> u64 {
         self.flags
     }
 
@@ -362,7 +362,7 @@ mod unix {
             .unwrap_or_default();
         let name = name.to_string_lossy().into_owned();
 
-        let flags = curr.ifa_flags;
+        let flags = From::from(curr.ifa_flags);
 
         let scope_id = address.is_ipv6().then(|| {
             let addr = addr.as_ptr() as *const c::sockaddr_in6;
