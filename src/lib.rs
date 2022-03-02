@@ -466,9 +466,12 @@ mod bsd {
         // See: https://illumos.org/man/3socket/sockaddr_dl
         let start = addr.sdl_nlen as usize; // length of the if name.
         let end = start + addr.sdl_alen as usize;
+        let data = unsafe {
+            std::slice::from_raw_parts(&addr.sdl_data as *const _ as *const u8, end)
+        };
 
-        if let [b0, b1, b2, b3, b4, b5] = addr.sdl_data[start..end] {
-            Some([b0 as u8, b1 as u8, b2 as u8, b3 as u8, b4 as u8, b5 as u8])
+        if let [b0, b1, b2, b3, b4, b5] = data[start..end] {
+            Some([b0, b1, b2, b3, b4, b5])
         } else {
             None
         }
