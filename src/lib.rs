@@ -29,10 +29,11 @@ impl Interface {
         self.mac
     }
 
-    /// Interface address. Reader beware: `ifa.address().is_loopback()`
-    /// returns false for fe80::1%lo0 even though that is a local address;
-    /// it's a link-local address attached to the loopback interface.
-    /// See <https://github.com/rust-lang/rust/issues/91448>.
+    /// Interface address.
+    ///
+    /// Note that [`ifa.address().is_loopback()`](std::net::IpAddr::is_loopback)
+    /// returns false for link-local addresses such as fe80::1%lo0 although
+    /// they are what would usually be thought of as "local" addresses.
     pub fn address(&self) -> &IpAddr {
         &self.address
     }
