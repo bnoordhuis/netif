@@ -68,12 +68,14 @@ pub use unix::*;
 mod windows {
     use super::Interface;
     use std::io;
-    use std::net;
     use std::net::IpAddr;
+    use std::net::Ipv4Addr;
+    use std::net::Ipv6Addr;
     use std::ptr::null_mut;
     use std::ptr::NonNull;
     use winapi::shared::ifdef::IfOperStatusUp;
     use winapi::shared::ws2def::SOCKADDR;
+    use winapi::shared::ws2def::SOCKADDR_IN;
     use winapi::shared::ws2ipdef::SOCKADDR_IN6;
     use winapi::um::iphlpapi::GetAdaptersAddresses;
     use winapi::um::iptypes::GAA_FLAG_SKIP_ANYCAST;
@@ -186,16 +188,28 @@ mod windows {
     fn ip(addr: NonNull<SOCKADDR>) -> Option<IpAddr> {
         let family = unsafe { addr.as_ref().sa_family };
 
-        // Leans on the fact that SocketAddrV4 and SocketAddrV6 are
-        // transparent wrappers around SOCKADDR.
         match family as _ {
             PF_INET => {
-                let addr = addr.as_ptr() as *const net::SocketAddrV4;
-                Some(IpAddr::V4(*unsafe { *addr }.ip()))
+                let addr = addr.as_ptr() as *mut SOCKADDR_IN;
+                let addr = unsafe { (*addr).sin_addr.S_un.S_addr() };
+                let [b0, b1, b2, b3] = addr.to_be_bytes();
+                let addr = Ipv4Addr::new(b0, b1, b2, b3);
+                Some(IpAddr::V4(addr))
             }
             PF_INET6 => {
-                let addr = addr.as_ptr() as *const net::SocketAddrV6;
-                Some(IpAddr::V6(*unsafe { *addr }.ip()))
+                let addr = addr.as_ptr() as *mut SOCKADDR_IN6;
+                let [b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11, b12, b13, b14, b15] =
+                    *unsafe { (*addr).sin6_addr.u.Byte() };
+                let s0 = 256 * b0 as u16 + b1 as u16;
+                let s1 = 256 * b2 as u16 + b3 as u16;
+                let s2 = 256 * b4 as u16 + b5 as u16;
+                let s3 = 256 * b6 as u16 + b7 as u16;
+                let s4 = 256 * b8 as u16 + b9 as u16;
+                let s5 = 256 * b10 as u16 + b11 as u16;
+                let s6 = 256 * b12 as u16 + b13 as u16;
+                let s7 = 256 * b14 as u16 + b15 as u16;
+                let addr = Ipv6Addr::new(s0, s1, s2, s3, s4, s5, s6, s7);
+                Some(IpAddr::V6(addr))
             }
             _ => None,
         }
@@ -223,12 +237,12 @@ mod windows {
             IpAddr::V4(_) => {
                 let ones = !0u32;
                 let mask = ones & !ones.checked_shr(prefixlen).unwrap_or(0);
-                IpAddr::V4(net::Ipv4Addr::from(mask))
+                IpAddr::V4(Ipv4Addr::from(mask))
             }
             IpAddr::V6(_) => {
                 let ones = !0u128;
                 let mask = ones & !ones.checked_shr(prefixlen).unwrap_or(0);
-                IpAddr::V6(net::Ipv6Addr::from(mask))
+                IpAddr::V6(Ipv6Addr::from(mask))
             }
         };
 
@@ -265,8 +279,9 @@ mod unix {
     use std::ffi::CStr;
     use std::io;
     use std::mem;
-    use std::net;
     use std::net::IpAddr;
+    use std::net::Ipv4Addr;
+    use std::net::Ipv6Addr;
     use std::ptr;
     use std::ptr::NonNull;
 
@@ -328,16 +343,27 @@ mod unix {
     fn ip(addr: NonNull<c::sockaddr>) -> Option<IpAddr> {
         let family = unsafe { addr.as_ref().sa_family };
 
-        // Leans on the fact that SocketAddrV4 and SocketAddrV6 are
-        // transparent wrappers around sockaddr_in and sockaddr_in6.
         match family as _ {
             c::AF_INET => {
-                let addr = addr.as_ptr() as *const net::SocketAddrV4;
-                Some(IpAddr::V4(*unsafe { *addr }.ip()))
+                let addr = unsafe { &*(addr.as_ptr() as *mut c::sockaddr_in) };
+                let [b0, b1, b2, b3] = addr.sin_addr.s_addr.to_be_bytes();
+                let addr = Ipv4Addr::new(b0, b1, b2, b3);
+                Some(IpAddr::V4(addr))
             }
             c::AF_INET6 => {
-                let addr = addr.as_ptr() as *const net::SocketAddrV6;
-                Some(IpAddr::V6(*unsafe { *addr }.ip()))
+                let addr = unsafe { &*(addr.as_ptr() as *mut c::sockaddr_in6) };
+                let [b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11, b12, b13, b14, b15] =
+                    addr.sin6_addr.s6_addr;
+                let s0 = 256 * b0 as u16 + b1 as u16;
+                let s1 = 256 * b2 as u16 + b3 as u16;
+                let s2 = 256 * b4 as u16 + b5 as u16;
+                let s3 = 256 * b6 as u16 + b7 as u16;
+                let s4 = 256 * b8 as u16 + b9 as u16;
+                let s5 = 256 * b10 as u16 + b11 as u16;
+                let s6 = 256 * b12 as u16 + b13 as u16;
+                let s7 = 256 * b14 as u16 + b15 as u16;
+                let addr = Ipv6Addr::new(s0, s1, s2, s3, s4, s5, s6, s7);
+                Some(IpAddr::V6(addr))
             }
             _ => None,
         }
@@ -468,7 +494,10 @@ mod bsd {
         let start = addr.sdl_nlen as usize; // length of the if name.
         let end = start + addr.sdl_alen as usize;
         let data = unsafe {
-            std::slice::from_raw_parts(&addr.sdl_data as *const _ as *const u8, end)
+            std::slice::from_raw_parts(
+                &addr.sdl_data as *const _ as *const u8,
+                end,
+            )
         };
 
         if let [b0, b1, b2, b3, b4, b5] = data[start..end] {
