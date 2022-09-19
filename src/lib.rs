@@ -191,9 +191,8 @@ mod windows {
         match family as _ {
             PF_INET => {
                 let addr = addr.as_ptr() as *mut SOCKADDR_IN;
-                let addr = unsafe { (*addr).sin_addr.S_un.S_addr() };
-                let [b0, b1, b2, b3] = addr.to_be_bytes();
-                let addr = Ipv4Addr::new(b0, b1, b2, b3);
+                let addr = unsafe { *(*addr).sin_addr.S_un.S_addr() };
+                let addr = Ipv4Addr::from(u32::from_be(addr));
                 Some(IpAddr::V4(addr))
             }
             PF_INET6 => {
@@ -346,8 +345,7 @@ mod unix {
         match family as _ {
             c::AF_INET => {
                 let addr = unsafe { &*(addr.as_ptr() as *mut c::sockaddr_in) };
-                let [b0, b1, b2, b3] = addr.sin_addr.s_addr.to_be_bytes();
-                let addr = Ipv4Addr::new(b0, b1, b2, b3);
+                let addr = Ipv4Addr::from(u32::from_be(addr.sin_addr.s_addr));
                 Some(IpAddr::V4(addr))
             }
             c::AF_INET6 => {
